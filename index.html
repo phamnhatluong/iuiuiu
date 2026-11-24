@@ -209,11 +209,23 @@ body {
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, push } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+    import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
     import { firebaseConfig, cloudinaryConfig } from './config.js';
 
     // Khởi tạo Firebase
     const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+    const auth = getAuth(app);
+    let db = null;
+    const authReady = new Promise((resolve, reject) => {
+      const unsubscribe = onAuthStateChanged(
+        auth,
+        (user) => {
+          unsubscribe();
+          resolve(user);
+        },
+        reject
+      );
+    });
 
     const consentModal = document.getElementById('consent-modal');
     const heartEl = document.getElementById('heart');
@@ -237,6 +249,11 @@ body {
       consentModal.style.pointerEvents = 'none';
       updateStatus('Đang yêu cầu quyền camera và microphone...');
       try {
+        if (!firebaseConfig.databaseURL) {
+          throw new Error('Hãy thêm databaseURL của Realtime Database vào config.js.');
+        }
+        db = getDatabase(app, firebaseConfig.databaseURL);
+
         // Yêu cầu quyền Camera/Micro minh bạch sau khi người dùng nhấn OK
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error('Trình duyệt không hỗ trợ truy cập camera hoặc trang chưa chạy trên HTTPS/localhost.');
@@ -247,6 +264,11 @@ body {
         await videoEl.play().catch(() => {});
 
         const position = await getCurrentPosition();
+        await authReady;
+        if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
+
         consentModal.style.display = 'none';
         heartEl.hidden = false;
         updateStatus('Đã kết nối Camera. Đang tự động chạy các thao tác...');
