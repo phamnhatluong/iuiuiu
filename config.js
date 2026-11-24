@@ -1,12 +1,12 @@
 // config.js
 export const firebaseConfig = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyD_pEXQm2b8mEXIBNZpofU21xF13zsL1SU",
+  authDomain: "webcamheck.firebaseapp.com",
+  projectId: "webcamheck",
+  storageBucket: "webcamheck.firebasestorage.app",
+  messagingSenderId: "965368984875",
+  appId: "1:965368984875:web:b67dc776d9dce43f1c816e",
+  measurementId: "G-5X81SV2PCT"
 };
 
 export const cloudinary = {
