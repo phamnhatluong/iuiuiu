@@ -11,9 +11,8 @@ export const firebaseConfig = {
 };
 
 export const cloudinary = {
-    cloudName: 'dkn9qkmxe',
-    uploadPreset: 'mathtutor',   // phải là preset kiểu "Unsigned"
-    folder: 'mathtutor'                            // thư mục gốc; ảnh nằm ở  <folder>/<uid>/cheat/…  (phải TRÙNG biến CLOUDINARY_FOLDER ở máy chủ)
-  }
+  cloudName: 'dpihfxijg',
+  uploadPreset: '20-10-pnl'
+};
 
 export const cloudinaryConfig = cloudinary;
